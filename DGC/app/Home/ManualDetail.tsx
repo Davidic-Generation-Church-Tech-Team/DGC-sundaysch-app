@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Image, useWindowD
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BlurView } from 'expo-blur';
 import { MaterialIcons } from "@expo/vector-icons";
-import { useNavigation } from "./_navigationContext";
+import { useNavigation } from "@/context/NavigationContext";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -421,11 +421,11 @@ const IntroductionFormatter = ({ text, onScripturePress, isDarkMode, fontSize, f
     'gi'
   );
 
-  const lines = text.split('\n').filter(line => line.trim() !== '');
+  const lines = text.split('\n').filter((line: string) => line.trim() !== '');
   
   return (
     <View>
-      {lines.map((line, lineIndex) => {
+      {lines.map((line: string, lineIndex: number) => {
         const trimmedLine = line.trim();
         const lowerLine = trimmedLine.toLowerCase();
         const isOldTestament = lowerLine.startsWith('old testament');

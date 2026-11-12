@@ -12,20 +12,20 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { MaterialIcons } from "@expo/vector-icons";
+import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import BottomTabNavigation from "./BottomTabNavigation";
-import { useNavigation } from "./_navigationContext";
+import { useNavigation } from "@/context/NavigationContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   fetchAllManualsFromHygraph,
   toCompatManual,
-  computeNextUpcomingISO,
-  isManualUnlocked,
   type CompatManual,
-} from "../../lib/hygraph";
+} from "@/lib/hygraph";
+import { openManual } from "@/lib/openManual";
+import { getOpensLabel, isManualUnlocked, useNow } from "@/lib/unlock";
 
 const ACCENT = "#9d00d4";
+const MANUAL_ICON_COLOR = "#B8860B";
 const OUTLINE_STORAGE_KEY = "outline_all_manuals_hygraph";
 
 const months = [
@@ -62,7 +62,8 @@ export default function Outline() {
   const [monthsData, setMonthsData] = useState<MonthData[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const { width } = useWindowDimensions();
+  const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
+  const now = useNow();
 
   useEffect(() => {
     loadOutlineData();
@@ -121,24 +122,26 @@ export default function Outline() {
     }
   };
 
-  const allManuals = useMemo(() => monthsData.flatMap((m) => m.data), [monthsData]);
-  const nextUpcomingISO = useMemo(() => computeNextUpcomingISO(allManuals), [allManuals]);
 
+  // The list only ever holds summary fields (title/theme/verse) — the rich
+  // content, class discussion, assignment, declarations and books only get
+  // fetched here, for the single manual actually being opened.
   const handleCardPress = useCallback(
-    (item: OutlineItem) => {
-      const isUnlocked = isManualUnlocked(item, nextUpcomingISO);
-      if (!isUnlocked) return;
+    async (item: OutlineItem) => {
+      const isUnlocked = isManualUnlocked(item, now);
+      if (!isUnlocked || loadingDetailId) return;
 
-      if (item.month === "January" && (item.date.includes("4") || item.date.includes("4th"))) {
-        router.push({ pathname: "/Home/January4ManualDetail", params: { manual: JSON.stringify(item) } });
-      } else {
-        router.push({ pathname: "/Home/ManualDetail", params: { manual: JSON.stringify(item) } });
+      setLoadingDetailId(item.id);
+      try {
+        await openManual(router, item);
+      } finally {
+        setLoadingDetailId(null);
       }
 
       setShowSearchResults(false);
       setSearchText("");
     },
-    [router, nextUpcomingISO]
+    [router, now, loadingDetailId]
   );
 
   const availableYears = useMemo(() => {
@@ -203,7 +206,8 @@ export default function Outline() {
   );
 
   const renderManualRow = (item: OutlineItem, keyPrefix: string, monthLabel?: string) => {
-    const isUnlocked = isManualUnlocked(item, nextUpcomingISO);
+    const isUnlocked = isManualUnlocked(item, now);
+    const isLoadingThis = loadingDetailId === item.id;
 
     return (
       <TouchableOpacity
@@ -221,14 +225,18 @@ export default function Outline() {
         <View
           style={[
             styles.manualIconCircle,
-            { backgroundColor: isUnlocked ? "rgba(157,0,212,0.12)" : isDarkMode ? "#242424" : "#f0f0f0" },
+            { backgroundColor: isUnlocked ? "rgba(184,134,11,0.18)" : isDarkMode ? "#242424" : "#f0f0f0" },
           ]}
         >
-          <MaterialIcons
-            name={isUnlocked ? "menu-book" : "lock"}
-            size={20}
-            color={isUnlocked ? ACCENT : isDarkMode ? "#666" : "#aaa"}
-          />
+          {isLoadingThis ? (
+            <ActivityIndicator size="small" color={MANUAL_ICON_COLOR} />
+          ) : (
+            <MaterialCommunityIcons
+              name={isUnlocked ? "book-open-page-variant" : "lock"}
+              size={20}
+              color={isUnlocked ? MANUAL_ICON_COLOR : isDarkMode ? "#666" : "#aaa"}
+            />
+          )}
         </View>
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text
@@ -254,7 +262,7 @@ export default function Outline() {
               </View>
             )}
             <Text style={[styles.manualDate, { color: isDarkMode ? "#888" : "#999" }]}>
-              {monthLabel ? `${monthLabel} · ${item.date}` : item.date}
+              {isUnlocked ? (monthLabel ? `${monthLabel} · ${item.date}` : item.date) : getOpensLabel(item)}
             </Text>
           </View>
         </View>
@@ -268,7 +276,6 @@ export default function Outline() {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={isDarkMode ? "#ffffff" : "#010002"} />
         </View>
-        <BottomTabNavigation />
       </SafeAreaView>
     );
   }
@@ -401,7 +408,6 @@ export default function Outline() {
         )}
       </ScrollView>
 
-      <BottomTabNavigation />
     </SafeAreaView>
   );
 }

@@ -13,8 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import BottomTabNavigation from "./BottomTabNavigation";
-import { useNavigation } from "./_navigationContext";
+import { useNavigation } from "@/context/NavigationContext";
 
 const ACCENT = "#9d00d4";
 
@@ -179,7 +178,6 @@ export default function Noted() {
         <Feather name="plus" size={getResponsiveIconSize(22)} color="#FFFFFF" />
       </TouchableOpacity>
 
-      <BottomTabNavigation />
     </SafeAreaView>
   );
 }

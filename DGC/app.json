@@ -12,7 +12,11 @@
       "url": "https://u.expo.dev/3904628e-c941-4a45-a724-8f155676c790"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kalex231.DGC",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {

@@ -16,16 +16,16 @@ export interface HygraphManual {
   studyDate: string; // "YYYY-MM-DD"
   memoryVerse: string;
   scriptureText: string;
-  conclusion: string;
-  content: { html: string } | null;
-  classDiscussion: { html: string } | null;
-  assignment: { html: string } | null;
-  declarations: { html: string } | null;
-  image: { url: string } | null;
-  books: HygraphBook[];
+  conclusion?: string;
+  content?: { html: string } | null;
+  classDiscussion?: { html: string } | null;
+  assignment?: { html: string } | null;
+  declarations?: { html: string } | null;
+  image?: { url: string } | null;
+  books?: HygraphBook[];
 }
 
-async function hygraphRequest<T>(query: string): Promise<T> {
+async function hygraphRequest<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response: Response;
@@ -34,7 +34,7 @@ async function hygraphRequest<T>(query: string): Promise<T> {
       method: "POST",
       signal: controller.signal,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, variables }),
     });
   } catch {
     throw new Error("Could not reach the manuals server. Check your internet connection and try again.");
@@ -49,34 +49,80 @@ async function hygraphRequest<T>(query: string): Promise<T> {
   return json.data as T;
 }
 
-const MANUAL_FIELDS = `
+// Kept deliberately light — no rich-text/books fields — since this is what
+// loads eagerly for the whole list every time the Manuals tab (or the Home
+// "Recommended" section) mounts. The heavy fields (content, classDiscussion,
+// assignment, declarations, books) are fetched one at a time, only for the
+// single manual someone actually opens — see fetchManualDetailById below.
+const SUMMARY_FIELDS = `
   id
+  title
+  theme
+  studyDate
   memoryVerse
   scriptureText
-  studyDate
-  theme
-  title
+  image { url }
+`;
+
+const FULL_FIELDS = `
+  ${SUMMARY_FIELDS}
   content { html }
   classDiscussion { html }
   assignment { html }
   conclusion
-  image { url }
   books { title author }
   declarations { html }
 `;
 
-// Fetches every manual currently published — January through whatever's
-// live, ordered oldest first so month-grouping and the global unlock
-// ordering below both fall out naturally.
+let summaryCache: HygraphManual[] | null = null;
+let summaryCachePromise: Promise<HygraphManual[]> | null = null;
+
+// Fetches the lightweight list once per app session and reuses it after
+// that — re-opening the Manuals tab or coming back to Home no longer
+// re-fetches everything from scratch every single time.
 export async function fetchAllManualsFromHygraph(): Promise<HygraphManual[]> {
-  const data = await hygraphRequest<{ manuals: HygraphManual[] }>(`
-    query AllManuals {
-      manuals(first: 200, orderBy: studyDate_ASC) {
-        ${MANUAL_FIELDS}
+  if (summaryCache) return summaryCache;
+  if (!summaryCachePromise) {
+    summaryCachePromise = hygraphRequest<{ manuals: HygraphManual[] }>(`
+      query ManualSummaries {
+        manuals(first: 200, orderBy: studyDate_ASC) {
+          ${SUMMARY_FIELDS}
+        }
       }
-    }
-  `);
-  return Array.isArray(data?.manuals) ? data.manuals : [];
+    `)
+      .then((data) => {
+        summaryCache = Array.isArray(data?.manuals) ? data.manuals : [];
+        return summaryCache;
+      })
+      .catch((err) => {
+        summaryCachePromise = null; // don't poison future attempts after a failed fetch
+        throw err;
+      });
+  }
+  return summaryCachePromise;
+}
+
+const detailCache = new Map<string, HygraphManual>();
+
+// Fetches the full manual — including the rich-text/books fields the list
+// deliberately skips — for exactly the one manual being opened.
+export async function fetchManualDetailById(id: string): Promise<HygraphManual | null> {
+  const cached = detailCache.get(id);
+  if (cached) return cached;
+
+  const data = await hygraphRequest<{ manual: HygraphManual | null }>(
+    `
+      query ManualDetail($id: ID!) {
+        manual(where: { id: $id }) {
+          ${FULL_FIELDS}
+        }
+      }
+    `,
+    { id }
+  );
+
+  if (data?.manual) detailCache.set(id, data.manual);
+  return data?.manual ?? null;
 }
 
 const MONTH_NAMES = [
@@ -93,7 +139,7 @@ const ORDINAL_SUFFIX = (day: number) => {
 
 // studyDate is a bare "YYYY-MM-DD" — parsed manually rather than
 // `new Date(str)` so it never shifts a day under a negative UTC offset.
-function parseISODate(iso: string): { year: number; month: number; day: number } | null {
+export function parseISODate(iso: string): { year: number; month: number; day: number } | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
   if (!match) return null;
   return { year: parseInt(match[1], 10), month: parseInt(match[2], 10), day: parseInt(match[3], 10) };
@@ -176,49 +222,4 @@ export function toCompatManual(raw: HygraphManual, order: number): CompatManual 
     imageUrl: raw.image?.url,
     recommendedBooks: (raw.books || []).map((b) => (b.author ? `${b.title} — ${b.author}` : b.title)),
   };
-}
-
-// Months whose curriculum isn't ready yet — locked outright regardless of
-// the date-based cadence below.
-const LOCKED_MONTHS = new Set(["September", "October", "November", "December"]);
-
-function todayISO(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function addDaysISO(iso: string, days: number): string {
-  const parsed = parseISODate(iso);
-  if (!parsed) return iso;
-  const date = new Date(parsed.year, parsed.month - 1, parsed.day);
-  date.setDate(date.getDate() + days);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-// The soonest not-yet-unlocked Sunday across every (non-locked-month)
-// manual — that one gets unlocked immediately regardless of the Saturday
-// rule below, so there's always a "this week's manual" to read.
-export function computeNextUpcomingISO(manuals: CompatManual[]): string | null {
-  const today = todayISO();
-  const future = manuals
-    .filter((m) => !LOCKED_MONTHS.has(m.month) && m.studyDate > today)
-    .map((m) => m.studyDate)
-    .sort();
-  return future.length ? future[0] : null;
-}
-
-// Unlock rule: September–December are locked outright. Otherwise, a manual
-// unlocks the Saturday before its Sunday studyDate — except the single
-// nearest upcoming Sunday, which unlocks right away (so members always have
-// this week's manual even before that Saturday arrives). Anything on or
-// before today stays unlocked permanently.
-export function isManualUnlocked(manual: CompatManual, nextUpcomingISO: string | null): boolean {
-  if (LOCKED_MONTHS.has(manual.month)) return false;
-
-  const today = todayISO();
-  if (manual.studyDate <= today) return true;
-  if (nextUpcomingISO && manual.studyDate === nextUpcomingISO) return true;
-
-  const saturdayBefore = addDaysISO(manual.studyDate, -1);
-  return today >= saturdayBefore;
 }

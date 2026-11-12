@@ -2,10 +2,12 @@ import { useEffect } from "react";
 import { View, Image, useWindowDimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useNavigation } from "./Home/_navigationContext";
+import { useNavigation } from "@/context/NavigationContext";
+
+const SPLASH_MS = 1500;
 
 export default function Index() {
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const router = useRouter();
   const { hasCompletedOnboarding, isLoading } = useNavigation();
 
@@ -17,13 +19,10 @@ export default function Index() {
   useEffect(() => {
     if (isLoading) return;
 
+    // replace (not push) so the splash isn't left in the history to go back to.
     const timer = setTimeout(() => {
-      if (hasCompletedOnboarding) {
-        router.push("/Home/home");
-      } else {
-        router.push("/onboarding");
-      }
-    }, 3000);
+      router.replace(hasCompletedOnboarding ? "/home" : "/onboarding");
+    }, SPLASH_MS);
 
     return () => clearTimeout(timer);
   }, [router, hasCompletedOnboarding, isLoading]);

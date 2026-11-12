@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useCallback, useState, useRef, useEffect } from "react";
 import {
   View,
   Image,
@@ -10,18 +10,21 @@ import {
   Modal,
   StyleSheet,
   ActivityIndicator,
+  type ImageSourcePropType,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import Header from "./header";
-import Recommended from "./recommended";
-import Note from "./notes";
-import BottomTabNavigation from "./BottomTabNavigation";
-import { useNavigation } from "./_navigationContext";
+import Header from "@/components/Header";
+import Recommended from "@/components/Recommended";
+import Note from "@/components/NotesPreview";
+import { useNavigation } from "@/context/NavigationContext";
+import { fetchAllManualsFromHygraph, toCompatManual } from "@/lib/hygraph";
+import { isManualUnlocked, useNow } from "@/lib/unlock";
 
 interface BannerSlide {
   id: string;
-  image: NodeRequire;
+  image: ImageSourcePropType;
   imageUrl?: string;
 }
 
@@ -30,7 +33,11 @@ const STATIC_BANNER: BannerSlide[] = [
   { id: "sign", image: require("@/assets/images/sign.png") },
 ];
 
-const API_BASE_URL = "https://dgc-backend.onrender.com";
+const MAX_MANUAL_BANNERS = 4;
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 const BannerSkeleton = ({ width, height, isDarkMode, getResponsiveSize }: any) => (
   <View
@@ -82,80 +89,32 @@ export default function Home() {
     setIsDarkMode(!isDarkMode);
   };
 
-  // Get current month name
-  const getCurrentMonth = () => {
-    const now = new Date();
-    return now.toLocaleString('default', { month: 'long' });
-  };
-
- 
-  const fetchMonthlyBanners = async () => {
+  // Banners are the cover images of this month's manuals that have opened,
+  // followed by the static sign — same Hygraph data as the Manuals tab, so
+  // there's no separate banner backend to wake up or keep in sync.
+  const fetchMonthlyBanners = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
-      
-      const currentMonth = getCurrentMonth();
-      console.log(`Fetching banners for month: ${currentMonth}`);
-      
-      // Fetch manuals for current month
-      const response = await fetch(`${API_BASE_URL}/api/manuals/month/${currentMonth.toLowerCase()}`);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch banners: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.message || 'API request failed');
-      }
-      
-      if (!result.data || result.data.length === 0) {
-        // No banners for this month - just show sign.png
-        console.log(`No banners found for ${currentMonth}, showing sign only`);
-        setAllBanners(STATIC_BANNER);
-        return;
-      }
-      
-      const manuals = result.data;
-      console.log(`Found ${manuals.length} manuals for ${currentMonth}`);
-      
-      // Create banners from manuals - only use manuals with imageUrl
-      const banners: BannerSlide[] = [];
-      
-      for (const manual of manuals) {
-        if (manual.imageUrl && manual.imageUrl.trim() !== '') {
-          banners.push({
-            id: manual._id || manual.id || `banner-${banners.length}`,
-            image: require("@/assets/images/sign.png"), // Use sign.png as fallback if imageUrl fails
-            imageUrl: manual.imageUrl,
-          });
-        }
-        
-        // Only take first 4 banners
-        if (banners.length >= 4) break;
-      }
-      
-      console.log(`Created ${banners.length} banners from API`);
-      
-      // Add sign.png as the last banner
-      const combinedBanners = [
-        ...banners,
-        ...STATIC_BANNER
-      ];
-      
-      setAllBanners(combinedBanners);
-      
-    } catch (error) {
-      console.error("Error fetching monthly banners:", error);
-      setError(error instanceof Error ? error.message : 'Failed to load banners');
-      // On error, just show sign.png
+
+      const currentMonth = MONTH_NAMES[new Date().getMonth()];
+      const manuals = (await fetchAllManualsFromHygraph()).map((raw, i) => toCompatManual(raw, i + 1));
+
+      const banners: BannerSlide[] = manuals
+        .filter((m) => m.month === currentMonth && !!m.imageUrl && isManualUnlocked(m))
+        .slice(0, MAX_MANUAL_BANNERS)
+        .map((m) => ({ id: m.id, image: STATIC_BANNER[0].image, imageUrl: m.imageUrl }));
+
+      setAllBanners([...banners, ...STATIC_BANNER]);
+    } catch (err) {
+      console.error("Error fetching monthly banners:", err);
+      setError(err instanceof Error ? err.message : "Failed to load banners");
       setAllBanners(STATIC_BANNER);
     } finally {
       setIsLoading(false);
       setBannerLoading(false);
     }
-  };
+  }, []);
 
   // Auto-scroll banner
   useEffect(() => {
@@ -197,17 +156,12 @@ export default function Home() {
     checkFirstLaunch();
   }, []);
 
-  // Fetch monthly banners on component mount
+  // Refetch when the day changes too, so a manual that opens on Friday
+  // brings its banner in without restarting the app.
+  const today = useNow().toDateString();
   useEffect(() => {
     fetchMonthlyBanners();
-    
-    // Refresh banners daily
-    const refreshInterval = setInterval(() => {
-      fetchMonthlyBanners();
-    }, 24 * 60 * 60 * 1000); // 24 hours
-    
-    return () => clearInterval(refreshInterval);
-  }, []);
+  }, [fetchMonthlyBanners, today]);
 
   const renderBannerSlide = ({ item }: { item: BannerSlide }) => (
     <View
@@ -382,10 +336,9 @@ export default function Home() {
           <Recommended isDarkMode={isDarkMode} />
         </View>
 
-        <Note isDarkMode={isDarkMode} />
+        <Note />
       </ScrollView>
 
-      <BottomTabNavigation />
 
       {/* Welcome Modal */}
       <Modal visible={showWelcomeModal} transparent animationType="fade">
@@ -486,7 +439,5 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 10,
   },
-  indicatorDot: {
-    transition: "all 0.3s ease",
-  },
+  indicatorDot: {},
 });

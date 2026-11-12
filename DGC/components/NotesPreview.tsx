@@ -11,10 +11,11 @@ import { useFocusEffect, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useState } from "react";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useNavigation } from "./_navigationContext";
+import { useNavigation } from "@/context/NavigationContext";
 
-const folderDarkPng = require("../../assets/images/folder-dark.png");
+const folderDarkPng = require("@/assets/images/folder-dark.png");
 const ACCENT = "#9d00d4";
+const ADD_CARD_BORDER = "#2E7D32";
 const CARD_ACCENTS_LIGHT = ["#f3e5fb", "#e8f0fe", "#fdece9", "#eafaf0"];
 const CARD_ACCENTS_DARK = ["#241a2e", "#1a2233", "#2b1c1a", "#16261e"];
 
@@ -92,7 +93,7 @@ export default function Note() {
   };
 
   // Apply responsive sizes
-  const headerFontSize = getFontSize(13, 0.9); // 16px mobile, ~14.4px tablet
+  const headerFontSize = getFontSize(12, 0.9); // 16px mobile, ~14.4px tablet
   const seeAllFontSize = getFontSize(14, 0.85); // 14px mobile, ~11.9px tablet
   const cardTitleFontSize = getFontSize(12, 0.85); // 12px mobile, ~10.2px tablet
   const dateFontSize = getFontSize(9, 0.85); // 9px mobile, ~7.65px tablet
@@ -272,7 +273,7 @@ export default function Note() {
           borderRadius: getResponsiveSize(16),
           borderWidth: 1.2,
           borderStyle: "dashed",
-          borderColor: ACCENT,
+          borderColor: ADD_CARD_BORDER,
           padding: getResponsiveSize(14),
           justifyContent: "center",
           alignItems: "center",
@@ -283,7 +284,7 @@ export default function Note() {
         <View style={{ alignItems: "center", justifyContent: "center" }}>
           {isDarkMode ? (
             <Image
-              source={require("../../assets/images/folder-light.png")}
+              source={require("@/assets/images/folder-light.png")}
               style={{
                 width: getResponsiveSize(isTablet ? 26 : 30),
                 height: getResponsiveSize(isTablet ? 26 : 30),
@@ -316,7 +317,7 @@ export default function Note() {
 
   const displayData = [...notesData, { id: "add" }] as any[];
 
-  return (
+  return (  
     <View
       style={{
         paddingHorizontal: getPadding(),
@@ -337,14 +338,14 @@ export default function Note() {
         <Text
           style={{
             fontSize: headerFontSize + 3,
-            fontFamily: "Manrope_800ExtraBold",
+            fontFamily: "Manrope_",
             color: isDarkMode ? "#ffffff" : "#000000",
           }}
         >
           Your Notes
         </Text>
         {notesData.length > 0 && (
-          <TouchableOpacity activeOpacity={0.7} onPress={() => router.push("/Home/noted")}>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => router.navigate("/noted")}>
             <Text
               style={{
                 fontSize: seeAllFontSize,

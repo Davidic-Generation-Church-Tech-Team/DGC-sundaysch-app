@@ -1,4 +1,4 @@
-import { Stack, usePathname } from "expo-router";
+import { Stack } from "expo-router";
 import {
   useFonts,
   Manrope_400Regular,
@@ -8,9 +8,9 @@ import {
   Manrope_800ExtraBold,
 } from "@expo-google-fonts/manrope";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect, useRef } from "react";
-import { View, BackHandler, Platform, PanResponder } from "react-native";
-import { NavigationProvider } from "@/app/Home/_navigationContext";
+import { useEffect } from "react";
+import { View } from "react-native";
+import { NavigationProvider } from "@/context/NavigationContext";
 import "../global.css";
 
 SplashScreen.preventAutoHideAsync();
@@ -24,30 +24,6 @@ export default function RootLayout() {
     Manrope_800ExtraBold,
   });
 
-  const pathname = usePathname();
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) =>
-        Platform.OS === "ios" && gestureState.dx > 50,
-      onPanResponderRelease: () => {
-        if (Platform.OS === "ios" && (pathname === "/" || pathname === "/home")) {
-          BackHandler.exitApp();
-        }
-      },
-    })
-  ).current;
-
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (pathname === "/" || pathname === "/home") {
-        BackHandler.exitApp();
-        return true;
-      }
-      return false;
-    });
-    return () => backHandler.remove();
-  }, [pathname]);
-
   useEffect(() => {
     if (fontsLoaded) SplashScreen.hideAsync();
   }, [fontsLoaded]);
@@ -56,9 +32,13 @@ export default function RootLayout() {
 
   return (
     <NavigationProvider>
-      <View style={{ flex: 1 }} {...panResponder.panHandlers}>
-        <Stack screenOptions={{ headerShown: false }} />
-      </View>
+      {/* Native stack gestures give iOS swipe-back and Android back for free;
+          the entry screens below are roots, so they must not be swiped away. */}
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+      </Stack>
     </NavigationProvider>
   );
 }

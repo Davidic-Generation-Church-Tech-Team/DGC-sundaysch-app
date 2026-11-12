@@ -9,16 +9,17 @@ import {
   Animated,
   Platform,
   Dimensions,
+  type ImageSourcePropType,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { useNavigation } from "./Home/_navigationContext";
+import { useNavigation } from "@/context/NavigationContext";
 
 interface OnboardingSlide {
   id: string;
-  image: NodeRequire;
+  image: ImageSourcePropType;
   title: string;
   subtitle: string;
   description: string;
@@ -92,8 +93,9 @@ export default function Onboarding() {
     return Math.max(basePadding * (width / 375), basePadding * 0.8);
   };
 
-  const handleCompleteOnboarding = () => {
-    setHasCompletedOnboarding(true);
+  const handleCompleteOnboarding = async () => {
+    await setHasCompletedOnboarding(true);
+    router.replace("/home");
   };
 
   const renderSlide = ({ item, index }: { item: OnboardingSlide; index: number }) => (
@@ -221,7 +223,7 @@ export default function Onboarding() {
               borderRadius: 40,
               paddingVertical: isSmallDevice ? 12 : 8,
               paddingHorizontal: isSmallDevice ? 16 : 20,
-              alignSelf: "start",
+              alignSelf: "flex-start",
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",

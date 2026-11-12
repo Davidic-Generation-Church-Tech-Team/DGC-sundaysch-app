@@ -7,18 +7,19 @@ import {
   useWindowDimensions,
   PanResponder,
   StyleSheet,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useNavigation } from "./_navigationContext";
+import { useNavigation } from "@/context/NavigationContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { MaterialIcons } from "@expo/vector-icons";
+import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   fetchAllManualsFromHygraph,
   toCompatManual,
-  computeNextUpcomingISO,
-  isManualUnlocked,
   type CompatManual,
-} from "../../lib/hygraph";
+} from "@/lib/hygraph";
+import { openManual } from "@/lib/openManual";
+import { isManualUnlocked, useNow } from "@/lib/unlock";
 
 const STORAGE_KEY = "recommended_manuals_hygraph";
 const LAST_READ_KEY = "last_read_manual";
@@ -125,9 +126,9 @@ interface RecommendedProps {
 // with the old REST backend's rolling 4-day order-window gone (see
 // lib/hygraph.ts's isManualUnlocked), this is the simplest faithful
 // replacement: whatever's currently readable, freshest first.
-const getDisplayManuals = (allManuals: ManualItem[], nextUpcomingISO: string | null): ManualItem[] => {
+const getDisplayManuals = (allManuals: ManualItem[], now: Date): ManualItem[] => {
   return allManuals
-    .filter((manual) => isManualUnlocked(manual, nextUpcomingISO))
+    .filter((manual) => isManualUnlocked(manual, now))
     .sort((a, b) => b.studyDate.localeCompare(a.studyDate))
     .slice(0, RECOMMENDED_COUNT);
 };
@@ -139,14 +140,16 @@ export default function Recommended({ isDarkMode: propIsDarkMode }: RecommendedP
   const isDarkMode = propIsDarkMode !== undefined ? propIsDarkMode : contextIsDarkMode;
 
   const [loading, setLoading] = useState(true);
-  const [recommendedData, setRecommendedData] = useState<ManualItem[]>([]);
   const [allManuals, setAllManuals] = useState<ManualItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lastReadManual, setLastReadManual] = useState<ManualItem | null>(null);
   const [loadingLastRead, setLoadingLastRead] = useState(true);
   const [scale, setScale] = useState(1);
+  const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
 
-  const nextUpcomingISO = useMemo(() => computeNextUpcomingISO(allManuals), [allManuals]);
+  const now = useNow();
+  // Derived (not stored) so the list updates on its own when Friday arrives.
+  const recommendedData = useMemo(() => getDisplayManuals(allManuals, now), [allManuals, now]);
   
   const lastDistanceRef = useRef(0);
   const panResponderRef = useRef<any>(null);
@@ -248,14 +251,12 @@ export default function Recommended({ isDarkMode: propIsDarkMode }: RecommendedP
 
       await saveToStorage(compatManuals);
       setAllManuals(compatManuals);
-      setRecommendedData(getDisplayManuals(compatManuals, computeNextUpcomingISO(compatManuals)));
     } catch (err) {
       console.error("Error fetching recommendations from Hygraph:", err);
 
       const cachedData = await loadFromStorage();
       if (cachedData && cachedData.length > 0) {
         setAllManuals(cachedData);
-        setRecommendedData(getDisplayManuals(cachedData, computeNextUpcomingISO(cachedData)));
       } else {
         setError(err instanceof Error ? err.message : "Unknown error occurred");
       }
@@ -319,52 +320,44 @@ export default function Recommended({ isDarkMode: propIsDarkMode }: RecommendedP
     return getResponsiveSize(16);
   };
 
-  const handleCardPress = useCallback(
-    (item: ManualItem) => {
-      const isUnlocked = isManualUnlocked(item, nextUpcomingISO);
-      if (!isUnlocked) {
-        return;
-      }
-
-      saveLastReadManual(item);
-      
-      // Check if this is January 4th and route to January4ManualDetail
-      if (item.month === "January" && (item.date.includes("4") || item.date.includes("4th"))) {
-        router.push({
-          pathname: "/Home/January4ManualDetail",
-          params: { manual: JSON.stringify(item) },
-        });
-      } else {
-        // For all other manuals
-        router.push({
-          pathname: "/Home/ManualDetail",
-          params: { manual: JSON.stringify(item) },
-        });
+  // recommendedData only ever holds summary fields — fetch the full manual
+  // (rich content, class discussion, assignment, declarations, books) only
+  // for the one actually being opened.
+  const openAndRemember = useCallback(
+    async (item: ManualItem) => {
+      setLoadingDetailId(item.id);
+      try {
+        const full = await openManual(router, item);
+        saveLastReadManual(full);
+      } finally {
+        setLoadingDetailId(null);
       }
     },
-    [router, nextUpcomingISO]
+    [router]
+  );
+
+  const handleCardPress = useCallback(
+    (item: ManualItem) => {
+      if (loadingDetailId) return;
+      if (!isManualUnlocked(item, now)) return;
+      openAndRemember(item);
+    },
+    [now, loadingDetailId, openAndRemember]
   );
 
   const handleSeeAll = () => {
-    router.push("/Home/outline");
+    router.navigate("/outline");
   };
 
   const handleContinueRead = useCallback(() => {
-    if (lastReadManual) {
-      const isUnlocked = isManualUnlocked(lastReadManual, nextUpcomingISO);
-      if (!isUnlocked) {
-        return;
-      }
-
-      router.push({
-        pathname: "/Home/ManualDetail",
-        params: { manual: JSON.stringify(lastReadManual) },
-      });
-    }
-  }, [lastReadManual, router, nextUpcomingISO]);
+    if (!lastReadManual || loadingDetailId) return;
+    if (!isManualUnlocked(lastReadManual, now)) return;
+    openAndRemember(lastReadManual);
+  }, [lastReadManual, now, loadingDetailId, openAndRemember]);
 
   const renderRecommendedItem = ({ item }: { item: ManualItem }) => {
-    const isUnlocked = isManualUnlocked(item, nextUpcomingISO);
+    const isUnlocked = isManualUnlocked(item, now);
+    const isLoadingThis = loadingDetailId === item.id;
 
     return (
       <TouchableOpacity
@@ -380,7 +373,6 @@ export default function Recommended({ isDarkMode: propIsDarkMode }: RecommendedP
           borderColor: isDarkMode ? "#444444" : "#cccccc",
           borderRadius: getResponsiveSize(12) * scale,
           backgroundColor: isDarkMode ? "#1a1a1a" : "#ffffff",
-          elevation: 2,
         }}
       >
         <View
@@ -391,14 +383,18 @@ export default function Recommended({ isDarkMode: propIsDarkMode }: RecommendedP
             marginRight: getResponsiveSize(10) * scale,
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: isUnlocked ? "rgba(157,0,212,0.12)" : isDarkMode ? "#2a2a2a" : "#eeeeee",
+            backgroundColor: isUnlocked ? "rgba(184,134,11,0.18)" : isDarkMode ? "#2a2a2a" : "#eeeeee",
           }}
         >
-          <MaterialIcons
-            name={isUnlocked ? "menu-book" : "lock"}
-            size={isTablet ? 16 : 18}
-            color={isUnlocked ? "#9d00d4" : isDarkMode ? "#666" : "#aaa"}
-          />
+          {isLoadingThis ? (
+            <ActivityIndicator size="small" color="#B8860B" />
+          ) : (
+            <MaterialCommunityIcons
+              name={isUnlocked ? "book-open-page-variant" : "lock"}
+              size={isTablet ? 16 : 18}
+              color={isUnlocked ? "#B8860B" : isDarkMode ? "#666" : "#aaa"}
+            />
+          )}
         </View>
 
         <View style={{ flex: 1 }}>
@@ -536,7 +532,7 @@ export default function Recommended({ isDarkMode: propIsDarkMode }: RecommendedP
             </Text>
 
             <View style={styles.continueReadArrow}>
-              <Text style={styles.continueReadArrowText}>→</Text>
+              <MaterialIcons name="arrow-forward" size={16} color="#f0f0f0" />
             </View>
           </TouchableOpacity>
         </>
@@ -693,7 +689,7 @@ export default function Recommended({ isDarkMode: propIsDarkMode }: RecommendedP
               lineHeight: (versesFontSize + 6) * scale,
             }}
           >
-            Once new manuals unlock, we'll surface the ones picked for you right here.
+            Once new manuals unlock, we&apos;ll surface the ones picked for you right here.
           </Text>
         </View>
       )}
@@ -721,11 +717,6 @@ function getResponsiveContinueReadStyles(
       paddingVertical: isSmallPhone ? getResponsiveSize(8) * scale : getResponsiveSize(9) * scale,
       borderWidth: 1,
       borderRadius: getResponsiveSize(12) * scale,
-      shadowColor: "#000000ff",
-      shadowOpacity: 0.1,
-      shadowOffset: { width: 0, height: 3 },
-      shadowRadius: 6,
-      elevation: 8,
     },
     continueReadText: {
       fontSize: isSmallPhone ? titleFontSize * 0.85 * scale : titleFontSize * scale,
@@ -735,18 +726,13 @@ function getResponsiveContinueReadStyles(
     continueReadArrow: {
       width: isSmallPhone ? getResponsiveSize(26) * scale : getResponsiveSize(isTablet ? 28 : 30) * scale,
       height: isSmallPhone ? getResponsiveSize(26) * scale : getResponsiveSize(isTablet ? 28 : 30) * scale,
-      borderRadius: getResponsiveSize(6) * scale,
+      borderRadius: 999,
       backgroundColor: "#ae00ffff",
       alignItems: "center",
       justifyContent: "center",
       borderColor: "#8800ccff",
       borderWidth: 1,
       marginLeft: isSmallPhone ? getResponsiveSize(10) * scale : getResponsiveSize(12) * scale,
-    },
-    continueReadArrowText: {
-      fontSize: isSmallPhone ? getResponsiveSize(16) * scale : getResponsiveSize(isTablet ? 16 : 18) * scale,
-      fontWeight: "900",
-      color: "#f0f0f0ff",
     },
   });
 }

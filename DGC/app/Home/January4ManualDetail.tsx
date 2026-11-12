@@ -3,7 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Image, useWindowD
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BlurView } from 'expo-blur';
 import { MaterialIcons } from "@expo/vector-icons";
-import { useNavigation } from "./_navigationContext";
+import { useNavigation } from "@/context/NavigationContext";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -95,7 +95,7 @@ const BOOK_MAP: { [key: string]: number } = {
   "1timothy": 54, "1sttimothy": 54, "itimothy": 54, "1tim": 54, "1ti": 54,
   "2timothy": 55, "2ndtimothy": 55, "iitimothy": 55, "2tim": 55, "2ti": 55,
   titus: 56, ti: 56, tit: 56,
-  philemon: 57, phm: 57, ph: 57,
+  philemon: 57, phm: 57,
   hebrews: 58, he: 58, heb: 58, "he.": 58,
   james: 59, jas: 59, jm: 59,
   "1peter": 60, "1stpeter": 60, "ipeter": 60, "1pet": 60, "1pe": 60, "1p": 60, "1pt": 60, "1pete": 60,
@@ -273,11 +273,11 @@ const IntroductionFormatter = ({ text, onScripturePress, isDarkMode, fontSize, f
     'gi'
   );
 
-  const lines = text.split('\n').filter(line => line.trim() !== '');
+  const lines = text.split('\n').filter((line: string) => line.trim() !== '');
   
   return (
     <View>
-      {lines.map((line, lineIndex) => {
+      {lines.map((line: string, lineIndex: number) => {
         const trimmedLine = line.trim();
         
         const lowerLine = trimmedLine.toLowerCase();
@@ -785,7 +785,7 @@ const fetchScripture = async () => {
       const dashRegex = /[–\-—]/g;
       if (dashRegex.test(verseNum)) {
         // Handle verse range (like "11–16", "11-16", "11—16")
-        const [startStr, endStr] = verseNum.split(dashRegex).map(v => v.trim());
+        const [startStr, endStr] = verseNum.split(dashRegex).map((v: string) => v.trim());
         const start = parseInt(startStr);
         const end = parseInt(endStr);
         
